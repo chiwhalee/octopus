@@ -4,24 +4,59 @@
 #include <vector>
 #include <algorithm> 
 
-template <typename Derived>   //this is CRTP (Curiously Recurring Template Pattern) fashion
-//ATTENTION: one cannot istancialize a template class 
+#include <concepts>   // used for template type constraints
+#include <type_traits>
+
+/*
+ this is CRTP (Curiously Recurring Template Pattern; 奇异递归模板模式) 
+        also called “静态多态" or "模板多态"
+      Its core values is:
+            virtual function is 运行时多态.  virtual
+            虚函数表带来的运行期开销（虚函数调用大约比普通调用慢 2-3
+            倍，且无法内联） 传统的 virtual
+            虚函数是在程序运行到那一行时，通过查虚函数表（Vptr/Vtable）才知道调哪个函数
+       CRTP 属于元编程, 标志是 “用代码生成代码”a
+            在基类里写一个通用的算法（比如 operator== 或 operator+）。
+            当编译器实例化 Base<QspU1> 时，它会根据 QspU1
+            自动生成一套专门针对该类型的成员函数        
+       ATTENTION: one cannot istancialize a CRTP base class 
+            
+*/
+template <typename Derived>   
 class QnBase {
 	public:
         int val; 
         const std::string SYMMETRY; 
         QnBase() : val(0) {}
         QnBase(int v) : val(v) {}
+
+        const Derived& derived() const {
+            //in CRTP pattern such static_cast is frequently needed, this is a common practice
+            return static_cast<const Derived&>(*this);
+            }        
+        
+        //KEEP this: the following is WARREND by c++20, 这个警告是 C++20 引入的一个“幽灵”特性导致的：运算符重写（Operator Rewriting/Reversing
+        // The solusion is to use the following "friend boo operator == "
+        //bool operator==(const Derived& other) const noexcept{
+        //    //KEEP this: pay attention to the type cast
+        //    return static_cast<const Derived&>(*this).val == other.val;
+        //    }
         
         
+        //KEEP this: since qn1 == qn2 is freqently used,  use "noexcept" allowing brutely optimize 
+        friend bool operator==(const Derived& lhs, const Derived& rhs) noexcept {
+            return lhs.val == rhs.val;
+        }
+
         // & gurantees passing name while not value                                                
-        bool operator==(const Derived& other) const{
-            return this->val==other.val;
+        Derived operator+(const Derived& other) const {
+            return Derived{this->val+other.val} ;
             }
+        void operator+=(const Derived& other){
+            this->val+=other.val; 
+        }
         
-        QnBase operator+(const Derived& other) const {
-            return QnBase{this->val+other.val} ;
-            } 
+         
         
         // 友元重载 <<
         friend std::ostream& operator<<(std::ostream& os, const Derived& qn) {
@@ -37,7 +72,7 @@ class QnBase {
 
 class QnTravial: public QnBase<QnTravial> {
     public:
-        int val=1;
+        
         const std::string SYMMETRY="Travial";
         using QnBase::QnBase; 
         
@@ -86,6 +121,20 @@ class QnU1:public QnBase<QnU1> {
     private:
 }; 
 
+/*
+    note1: LEARN cpp:
+        using 语句被称为 “类型特征导出”（Type Traits/Type Exporting）
+            1.模板参数QnClass 的生命周期仅限于类定义的内部。一旦编译器完成了类的实例化，这个“名字”就消失了;
+            using clause 被称为 "内嵌类型信息"
+    
+            2. 在泛型编程中，我们通常需要三个名字: QnBase（类名） ,
+            QnCalss(作为模板参数), Qn_t（别名）.这套模式，被称为
+            “特征提取（Traits）” 或 “类型擦除后的类型找回”
+        
+            3. Later can use "decltype(qsp)::Qn_t" to access QnClass (some times
+            std::decay or std::remove_reference is needed to remove & and
+            geting a real type)
+    */
 
 template <typename Derived, typename QnClass>
 class QspBase {
@@ -93,6 +142,7 @@ class QspBase {
         int nQN=0;
         std::vector<QnClass> QNs; 
         std::vector<int> Dims; 
+        using Qn_t = QnClass; //note1
         
         mutable int totDim=0;  // for lazy evaluation; using mutable, so that can be modified by const function
         //using QnClass = QnBase;
@@ -136,8 +186,6 @@ class QspBase {
             }
         }
         
-        //Derived operator*(const Derived& other) const{
-        //}
         
         // Checks if a quantum number exists.  Returns the index if found, otherwise -1.
         int has_quant_num(const QnClass& qn) const {
@@ -153,8 +201,6 @@ class QspBase {
         void add_to_quant_space(const QnClass& qn, int d) {
             int i = has_quant_num(qn);
             // In HPC, we use assertions for sanity checks that disappear in release builds
-            // Note: Ensure MaxQNNum is defined in your class or passed as a constraint
-            // assert(i < this->MaxQNNum); 
 
             if (i < 0) {
                 this->QNs.push_back(qn);
@@ -170,7 +216,7 @@ class QspBase {
         Derived tensor_prod(const Derived& other) const {
             // Handle identity cases (nQN == 0)
             if (this->nQN == 0) return other; 
-            if (other.nQN == 0) return *static_cast<const Derived*>(this);  //this 虽然指向派生类（如 QspU1），但它的静态类型是基类指针; 需要将基类指针显式转换为派生类指针
+            if (other.nQN == 0) return static_cast<const Derived&>(*this);  //this 虽然指向派生类（如 QspU1），但它的静态类型是基类指针; 需要将基类指针显式转换为派生类指针
 
             // Initialize result using the derived type
             // We use Derived instead of QspBase to ensure the correct object is returned
@@ -215,7 +261,7 @@ class QspBase {
             }
 };
 
-class QspTravial: public QspBase<QspTravial, QnTravial> {
+class QspTrivial: public QspBase<QspTrivial, QnTravial> {
     public:
         //int nQN;     // attention: should not redefine nQN, etc.
         //std::vector<QnTravial> QNs; 
@@ -224,7 +270,7 @@ class QspTravial: public QspBase<QspTravial, QnTravial> {
         using QspBase::QspBase;   // this is nuclear weapon 
         
         //using QnClass = QnTravial;
-        QspTravial(int n, std::vector<QnTravial> q, std::vector<int> d) 
+        QspTrivial(int n, std::vector<QnTravial> q, std::vector<int> d) 
                 : QspBase(n, q, d) {} 
     private:
 };
