@@ -1,5 +1,6 @@
 #include <format>
 #include <iostream>
+#include <ratio>
 #include <string>
 #include <vector>
 #include <algorithm> 
@@ -7,6 +8,10 @@
 #include <span>  //std::span  // chunck of mem window 
 #include <Eigen/Dense>                 
 //#include <format>
+
+
+#include <concepts>
+#include <type_traits>
 
 #include "utilities.cpp"
 #include "quantum_number.cpp"
@@ -128,6 +133,9 @@ int ravel_multi_index_F_order(const std::vector<int>& indices, const std::vector
 //    }
 //}
 
+
+
+
 template <typename DTYPE> 
 void transpose_dense(std::span<const DTYPE> array_flat, const std::vector<int>& shape,  
                     const std::vector<int>& order, std::span<DTYPE> out) {
@@ -179,7 +187,36 @@ struct BlockInfo {
 
 using Type_ind_labels = std::variant<std::monostate,int, std::string>;   //std::monostate is used to check None value 
 
+/*
+    LEARN CPP: 
+        about usage of concepts
+            用法:
+            concept 概念名 = 约束表达式;
+        概念不是变量：concept 声明不定义对象或常量，而是定义一个judgement              
+            concept的实质是以模板参量为参量的布尔函数；
+            requires 的实质是编译期的assert；
+        C++20 的概念机制完全建立在常量表达式之上。
+        
+        note1: using Has_Qn_t to tell the compliler that QspClass has Qn_t,  so that Qn_t can be refereed to 
+        note2: the reason why there must be a 'typename': 
+            the compiler by default takes QspClass:Qn_t as a variable or member
+            function; typename is needed to let it know it is a class in the first
+            place. 
+*/
+
+template <typename QspClass>
+concept Has_Qn_t= requires {
+    typename QspClass::Qn_t;   //note1
+};
+template <typename QspClass>
+concept IsValidQsp = Has_Qn_t<QspClass> && std::derived_from<QspClass, 
+        QspBase<QspClass, typename QspClass::Qn_t>>;  //note2
+template<typename DTYPE>
+concept IsNumber = std::is_same_v<DTYPE, float> || std::is_same_v<DTYPE, double> || std::is_same_v<DTYPE, std::complex<float>> || std::is_same_v<DTYPE, std::complex<double>>;
+
 template <typename QspClass, typename DTYPE = double>
+requires IsValidQsp<QspClass> && IsNumber<DTYPE>
+//requires IsNumber<DTYPE>
 class iTensor {
     public:
         std::vector<QspClass> qsp_list;
@@ -324,6 +361,69 @@ class iTensor {
             }
             
            return  res; 
+        }
+        
+        
+        std::tuple<std::vector<int>, std::vector<int>, std::vector<Type_ind_labels>> 
+        prepare_leg(const std::vector<Type_ind_labels>& V1, const std::vector<int>& Dims1,
+                    const std::vector<Type_ind_labels>& V2, const std::vector<int>& Dims2) 
+        {
+            size_t rank1 = V1.size();
+            size_t rank2 = V2.size();
+
+            std::vector<int> Vp1(rank1);
+            std::vector<int> Vp2(rank2);
+            std::vector<Type_ind_labels> V3;
+            V3.reserve(rank1 + rank2);
+
+            std::vector<bool> is_contracted_t1(rank1, false);
+            std::vector<bool> is_contracted_t2(rank2, false);
+            std::vector<std::pair<int, int>> matched_pairs;
+
+            //  variant 已经重载了 == 算子
+            for (size_t i = 0; i < rank1; ++i) {
+                if (std::holds_alternative<std::monostate>(V1[i])) continue;
+                
+                for (size_t j = 0; j < rank2; ++j) {
+                    if (V1[i] == V2[j]) { 
+                        is_contracted_t1[i] = true;
+                        is_contracted_t2[j] = true;
+                        matched_pairs.push_back({static_cast<int>(i), static_cast<int>(j)});
+
+                        if (Dims1[i] != Dims2[j]) {
+                            throw std::runtime_error("error, dim of index to be contracted not equal!");
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // 2. 构建 T1 秩序: [外腿, 内线]
+            size_t k = 0;
+            for (size_t i = 0; i < rank1; ++i) {
+                if (!is_contracted_t1[i]) {
+                    Vp1[k++] = static_cast<int>(i);
+                    V3.push_back(V1[i]);
+                }
+            }
+            for (const auto& pair : matched_pairs) Vp1[k++] = pair.first;
+
+            // 3. 构建 T2 秩序: [内线, 外腿] （完美的 GEMM 连续对齐）
+            size_t j = 0;
+            for (const auto& pair : matched_pairs) Vp2[j++] = pair.second;
+            
+            for (size_t i = 0; i < rank2; ++i) {
+                if (!is_contracted_t2[i]) {
+                    Vp2[j++] = static_cast<int>(i);
+                    V3.push_back(V2[i]);
+                }
+            }
+
+            
+            return std::make_tuple(std::move(Vp1), std::move(Vp2), std::move(V3));
+        }        
+        
+        iTensor<QspClass, DTYPE> contract(const iTensor<QspClass, DTYPE> other ){
         
         }
             
@@ -331,13 +431,6 @@ class iTensor {
 
 
 
-
-template <typename T>
-class CCC{
-    public:
-        std::vector<T> aa;
-        CCC(std::vector<T> _aa): aa(_aa){}; 
-};
 
 
 
