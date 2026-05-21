@@ -20,15 +20,33 @@
             当编译器实例化 Base<QspU1> 时，它会根据 QspU1
             自动生成一套专门针对该类型的成员函数        
        ATTENTION: one cannot istancialize a CRTP base class 
-            
+       
+       note1:
+            For CRTP class, one can not use concept/requires as usual, because
+            Derived is not constructed, unable to determine its type. Instead,
+            concept can be used on the construction function. 
+       note2:
+               Here using std::string_view instead of std::string. 
+            The latter can work. However, using the former can make QnBase
+            becomes constexpr, so that this can be leveraged in futural
+            optimization using meta programming. 
+                The only problem with string_view is that it can possiblly
+            become dangling pointer, which is however impossible here for a
+            static member variable of a class. 
+                
+                
 */
+
 template <typename Derived>   
+//requires std::derived_from<Derived, QnBase> 
 class QnBase {
 	public:
         int val; 
-        const std::string SYMMETRY; 
-        QnBase() : val(0) {}
-        QnBase(int v) : val(v) {}
+        //const std::string SYMMETRY; 
+        static constexpr std::string_view SYMMETRY = "NULL";  //note2
+        
+        QnBase() requires std::derived_from<Derived, QnBase> : val(0) {}  //note1
+        QnBase(int v) requires std::derived_from<Derived, QnBase> : val(v) {}
 
         const Derived& derived() const {
             //in CRTP pattern such static_cast is frequently needed, this is a common practice
@@ -72,8 +90,7 @@ class QnBase {
 
 class QnTravial: public QnBase<QnTravial> {
     public:
-        
-        const std::string SYMMETRY="Travial";
+        static constexpr std::string_view SYMMETRY = "Travial";
         using QnBase::QnBase; 
         
         void reverse(){}
@@ -95,12 +112,12 @@ class QnU1:public QnBase<QnU1> {
         //int val;  //会造成name shadowing with base class 
         //
         using QnBase::val;  // 增加透明性
-        const std::string SYMMETRY="U1"; 
+        static constexpr std::string_view SYMMETRY = "U1";
         //QnU1() = default ;
         using QnBase::QnBase;
         
         
-        QnU1(int v) : QnBase(v) {}
+        QnU1(int v): QnBase(v) {}
         QnU1 operator+(const QnU1& other) const {
             return QnU1{this->val+other.val} ;
             } 
