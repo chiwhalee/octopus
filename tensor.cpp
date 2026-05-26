@@ -1,3 +1,5 @@
+#pragma once  // hpp file only compile once 
+
 //#include <Eigen/src/Core/Map.h>
 //#include <Eigen/src/Core/Matrix.h>
 //#include <Eigen/src/Core/util/Constants.h>

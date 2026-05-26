@@ -1,3 +1,6 @@
+#pragma once  // hpp file only compile once 
+
+
 #include <iostream>
 #include <numeric>
 #include <string>
@@ -29,7 +32,11 @@
                Here using std::string_view instead of std::string. 
             The latter can work. However, using the former can make QnBase
             becomes constexpr, so that this can be leveraged in futural
-            optimization using meta programming. 
+            optimization using meta programming. For example
+                    template <typename Qn1, typename Qn2>
+                    constexpr bool is_same_symmetry() {
+                        return Qn1::name == Qn2::name;
+                    }
                 The only problem with string_view is that it can possiblly
             become dangling pointer, which is however impossible here for a
             static member variable of a class. 
@@ -38,15 +45,14 @@
 */
 
 template <typename Derived>   
-//requires std::derived_from<Derived, QnBase> 
 class QnBase {
 	public:
         int val; 
         //const std::string SYMMETRY; 
         static constexpr std::string_view SYMMETRY = "NULL";  //note2
         
-        QnBase() requires std::derived_from<Derived, QnBase> : val(0) {}  //note1
-        QnBase(int v) requires std::derived_from<Derived, QnBase> : val(v) {}
+        constexpr QnBase() requires std::derived_from<Derived, QnBase> : val(0) {}  //note1
+        constexpr QnBase(int v) requires std::derived_from<Derived, QnBase> : val(v) {}
 
         const Derived& derived() const {
             //in CRTP pattern such static_cast is frequently needed, this is a common practice
@@ -302,7 +308,7 @@ class QspU1 : public QspBase<QspU1, QnU1> {
 
 
 
-/*/#ifdef TEST_IT
+/*#ifdef TEST_IT
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
     
