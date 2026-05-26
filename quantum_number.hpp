@@ -94,19 +94,19 @@ class QnBase {
     private:
 };
 
-class QnTravial: public QnBase<QnTravial> {
+class QnTrivial: public QnBase<QnTrivial> {
     public:
-        static constexpr std::string_view SYMMETRY = "Travial";
+        static constexpr std::string_view SYMMETRY = "Trivial";
         using QnBase::QnBase; 
         
         void reverse(){}
         
-        QnTravial conj()
+        QnTrivial conj()
         {
             return *this; 
         
         }
-        QnTravial operator+(const QnTravial& other)
+        QnTrivial operator+(const QnTrivial& other)
         {
             return *this;
         
@@ -284,16 +284,16 @@ class QspBase {
             }
 };
 
-class QspTrivial: public QspBase<QspTrivial, QnTravial> {
+class QspTrivial: public QspBase<QspTrivial, QnTrivial> {
     public:
         //int nQN;     // attention: should not redefine nQN, etc.
-        //std::vector<QnTravial> QNs; 
+        //std::vector<QnTrivial> QNs; 
         //std::vector<int> Dims; 
         
         using QspBase::QspBase;   // this is nuclear weapon 
         
-        //using QnClass = QnTravial;
-        QspTrivial(int n, std::vector<QnTravial> q, std::vector<int> d) 
+        //using QnClass = QnTrivial;
+        QspTrivial(int n, std::vector<QnTrivial> q, std::vector<int> d) 
                 : QspBase(n, q, d) {} 
     private:
 };
