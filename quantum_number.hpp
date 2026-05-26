@@ -308,8 +308,8 @@ class QspU1 : public QspBase<QspU1, QnU1> {
 
 
 
-/*#ifdef TEST_IT
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#ifdef TEST_IT
+//#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
     
     TEST_CASE("test qn") {
@@ -345,8 +345,8 @@ class QspU1 : public QspBase<QspU1, QnU1> {
         std::cout<<"\n";
     }
 
-//#endif
-*/
+#endif
+
 
 
 

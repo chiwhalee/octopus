@@ -22,13 +22,13 @@
 #include <type_traits>
 
 #include "utilities.cpp"
-#include "quantum_number.cpp"
+#include "quantum_number.hpp"
 
 
 
 
 
-void ndindex(const std::vector<int>& shape) {
+inline void ndindex(const std::vector<int>& shape) {
     int rank = shape.size();
     std::vector<int> current_idx(rank);
     bool stop = false;
@@ -55,7 +55,7 @@ void ndindex(const std::vector<int>& shape) {
 }
 
 
-std::vector<int> ndindex_F_order(const std::vector<int>& shape) {
+inline std::vector<int> ndindex_F_order(const std::vector<int>& shape) {
     int rank = shape.size();
     std::vector<int> current_idx(rank);
     bool stop = false;
@@ -100,7 +100,7 @@ std::vector<int> ndindex_F_order(const std::vector<int>& shape) {
 
 
 // equivalent to np.ravel_multi_index for 'F' order
-int ravel_multi_index_F_order(const std::vector<int>& indices, const std::vector<int>& dims) {
+inline int ravel_multi_index_F_order(const std::vector<int>& indices, const std::vector<int>& dims) {
     int flat_index = 0;
     int stride = 1;
     for (int i = 0; i < indices.size(); ++i) {
@@ -582,8 +582,8 @@ class iTensor {
 
 
 
-//#ifdef TEST_IT
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#ifdef TEST_IT
+//#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
     TEST_CASE("ndindex") {
@@ -716,7 +716,7 @@ class iTensor {
     }
    
 
-//#endif
+#endif
 
 
 
