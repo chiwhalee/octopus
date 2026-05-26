@@ -1,20 +1,29 @@
+//#include <Eigen/src/Core/Map.h>
+//#include <Eigen/src/Core/Matrix.h>
+//#include <Eigen/src/Core/util/Constants.h>
+#include <cstdio>
 #include <format>
 #include <iostream>
-#include <ratio>
+//#include <ratio>
 #include <string>
 #include <vector>
 #include <algorithm> 
 #include <variant>  // std::variant 
 #include <span>  //std::span  // chunck of mem window 
 #include <Eigen/Dense>                 
-//#include <format>
+#include <Eigen/Core>
 
+//#include <format>
+#include <cassert>
 
 #include <concepts>
 #include <type_traits>
 
 #include "utilities.cpp"
 #include "quantum_number.cpp"
+
+
+
 
 
 void ndindex(const std::vector<int>& shape) {
@@ -163,16 +172,8 @@ void transpose_dense(std::span<const DTYPE> array_flat, const std::vector<int>& 
     }
 }
 
-template <typename T=std::vector<int>>
-void print_vec(T vec, std::string name=""){
-    if(name!=""){
-        std::cout << name<<"=";
-    }
-    for(auto v : vec){
-        std::cout << v<<" ";
-    }
-    std::cout << "\n";
-}
+
+
 
 
 struct BlockInfo {
@@ -185,7 +186,44 @@ struct BlockInfo {
     bool operator==( const BlockInfo & other) const = default; 
 }; 
 
-using Type_ind_labels = std::variant<std::monostate,int, std::string>;   //std::monostate is used to check None value 
+using Type_ind_labels = std::variant<std::monostate, int, std::string>;   //std::monostate is used to check None value 
+
+
+/* making std::variant printable by << */
+template <typename T>
+concept is_printable = requires(std::ostream& os, const T& val) {
+    { os << val } -> std::same_as<std::ostream&>;
+};
+template <typename... Ts>
+std::ostream& operator<<(std::ostream& os, const std::variant<Ts...>& var) {
+    std::visit([&os](const auto& val) {
+        using ValueType = std::decay_t<decltype(val)>;
+        if constexpr (std::is_same_v<ValueType, std::monostate>) {
+            os << "None";
+        }
+        else if constexpr (is_printable<ValueType>) {
+            os << val;
+        }
+        else {
+            os << "<not printable>";
+        }
+    }, var);
+    return os;
+}
+
+
+void print_vec(const std::ranges::input_range auto vec, std::string name=""){
+    if(name!=""){
+        std::cout << name<<" = ";
+    }
+    for(auto v:vec){
+        std::cout << v<<" ";
+    }
+    std::cout << "\n";
+}
+
+
+
 
 /*
     LEARN CPP: 
@@ -226,7 +264,7 @@ class iTensor {
         
         int num_of_blocks=0;
         std::vector<BlockInfo> Block_idx; 
-        std::vector<int> Addr_idx;  // of size num_of_blocks*rank 
+        std::vector<int> Addr_idx;  // of size num_of_blocks*rank; storing all qn_ind_tuple for non-zero blocks 
         std::vector<int> idx; 
         int tot_dim;
         std::vector<DTYPE> data;
@@ -293,17 +331,19 @@ class iTensor {
             }
             data.resize(tot_dim, 0.0);
         }
-        int get_block_id_by_qn_ind_tuple(std::vector<int>& qn_ind_tuple) const {
+        int get_block_id_by_qn_ind_tuple(const std::vector<int>& qn_ind_tuple) const {
             std::vector<int> dims;
             dims.reserve(rank);
             for(auto i=0; i<rank ; i++){dims.push_back(qsp_list[i].nQN);}
             int num = ravel_multi_index_F_order(qn_ind_tuple, dims);
-            return idx[num];
+            auto res = idx[num];
+            assert(res != -1);   // invalid qn_ind_tuple
+            return res;
         }
         
-        std::span<DTYPE> get_data_block(int block_id) noexcept{
+        std::span<DTYPE> get_data_block(int block_id) {
             //*learn cpp*: 1. not not using "const",  span needed to be writable 2. using noexcept for compute intensive func
-            BlockInfo & block = Block_idx[block_id]; 
+            const BlockInfo & block = Block_idx[block_id]; 
             return std::span<DTYPE>(data ).subspan(block.pos, block.size);
         }
         
@@ -364,9 +404,8 @@ class iTensor {
         }
         
         
-        std::tuple<std::vector<int>, std::vector<int>, std::vector<Type_ind_labels>> 
-        prepare_leg(const std::vector<Type_ind_labels>& V1, const std::vector<int>& Dims1,
-                    const std::vector<Type_ind_labels>& V2, const std::vector<int>& Dims2) 
+        std::tuple<std::vector<int>, std::vector<int>,std::vector<Type_ind_labels>,  std::vector<Type_ind_labels>> 
+        prepare_leg(const std::vector<Type_ind_labels>& V1, const std::vector<Type_ind_labels>& V2) 
         {
             size_t rank1 = V1.size();
             size_t rank2 = V2.size();
@@ -374,6 +413,7 @@ class iTensor {
             std::vector<int> Vp1(rank1);
             std::vector<int> Vp2(rank2);
             std::vector<Type_ind_labels> V3;
+            std::vector<Type_ind_labels> leg_common;
             V3.reserve(rank1 + rank2);
 
             std::vector<bool> is_contracted_t1(rank1, false);
@@ -389,10 +429,11 @@ class iTensor {
                         is_contracted_t1[i] = true;
                         is_contracted_t2[j] = true;
                         matched_pairs.push_back({static_cast<int>(i), static_cast<int>(j)});
+                        leg_common.push_back(V1[i]);
 
-                        if (Dims1[i] != Dims2[j]) {
-                            throw std::runtime_error("error, dim of index to be contracted not equal!");
-                        }
+                        //if (Dims1[i] != Dims2[j]) {
+                        //    throw std::runtime_error("error, dim of index to be contracted not equal!");
+                        //}
                         break;
                     }
                 }
@@ -419,18 +460,123 @@ class iTensor {
                 }
             }
 
-            
-            return std::make_tuple(std::move(Vp1), std::move(Vp2), std::move(V3));
+            // Note the neccesity of std::move at here; do not confuse this with ROV; this calls the construction function of make_tuple
+            return std::make_tuple(std::move(Vp1), std::move(Vp2), std::move(leg_common),  std::move(V3));
         }        
         
         iTensor<QspClass, DTYPE> contract(const iTensor<QspClass, DTYPE> other ){
-        
+            auto [ord1, ord2, ind_labels_internal,  ind_labels_3] = this->prepare_leg(this->ind_labels, other.ind_labels);
+            
+            
+            auto t1 = this->transpose(ord1);
+            auto t2 = other.transpose(ord2);
+            auto rank_1 = rank; 
+            auto rank_2 = other.rank ;
+            auto tot_qn_3 = tot_qn + other.tot_qn;
+            int num_internal_legs = ind_labels_internal.size(); 
+            int rank_3 = rank_1 + rank_2 - 2*num_internal_legs;
+           
+            std::cout << "rank_3="<<  rank_3 <<"\n";
+            print_vec(ord1, "ord1 = ");
+            print_vec(ord2, "ord2 = ");
+            
+            std::vector<QspClass> qsp_list_3;
+            qsp_list_3.reserve(rank_3);
+            for(int i=0; i<rank_1-num_internal_legs; i++){ 
+                qsp_list_3.push_back(t1.qsp_list[i]); }
+            for(int i=num_internal_legs; i<rank_2; i++){ 
+                qsp_list_3.push_back(t2.qsp_list[i]); }
+            iTensor<QspClass, DTYPE> t3(qsp_list_3);
+            
+            t3.ind_labels = std::move(ind_labels_3);
+            
+            print_vec(t3.ind_labels, "t3.ind_labels");
+            std::vector<int> qn_ind_tuple_1_internal; 
+            qn_ind_tuple_1_internal.resize(num_internal_legs);
+            std::vector<int> qn_ind_tuple_2_internal; 
+            qn_ind_tuple_2_internal.resize(num_internal_legs);
+            std::vector<int> qn_ind_tuple_3; qn_ind_tuple_3.resize(rank_3);
+            int dim1, dim2, dimc; 
+            int* ptr; 
+            
+            print_vec(t1.qsp_list, "t1.qsp_list");
+            print_vec(t2.qsp_list, "t2.qsp_list");
+            print_vec(t3.qsp_list, "t3.qsp_list");
+            
+            for(auto block_id_2=0; block_id_2<t2.num_of_blocks; block_id_2++ ){
+                
+                auto shape2 = t2.get_data_block_shape(block_id_2);
+                
+                ptr = t2.Addr_idx.data() + block_id_2*rank_2;
+                dimc=1;
+                for(auto i=0; i< num_internal_legs; i++) {
+                    dimc *= shape2[i];
+                    qn_ind_tuple_2_internal[i]=ptr[i];
+                }
+                
+                dim2=1;
+                for(auto i=num_internal_legs; i< t2.rank; i++) {
+                    dim2 *= shape2[i];
+                    qn_ind_tuple_3[i+num_internal_legs] = ptr[i]; 
+                }
+                
+                
+                auto data2 = t2.get_data_block(block_id_2);
+               
+                //Eigen::Map<Eigen::Matrix<const  DTYPE, Eigen::Dynamic, Eigen::Dynamic>> mat2(
+                //        data2.data(), dimc, dim2);
+                const Eigen::Map<Eigen::Matrix<DTYPE, 
+                      Eigen::Dynamic, Eigen::Dynamic>> mat2(data2.data(), dimc, dim2);
+                //Eigen::Map<const Eigen::MatrixXd> mat2(data2.data(), dimc, dim2);
+
+                
+                for(auto block_id_1=0; block_id_1<num_of_blocks; block_id_1++) {
+                    ptr = t1.Addr_idx.data() + block_id_1*rank_1;
+                    
+                    for(auto i=0; i<num_internal_legs; i++){
+                        qn_ind_tuple_1_internal[i] = ptr[i + (rank_1-num_internal_legs)];
+                    }
+                    if(qn_ind_tuple_1_internal==qn_ind_tuple_2_internal){
+                        auto shape1 = t1.get_data_block_shape(block_id_1);
+                        
+                        dim1=1;
+                        for(auto i=0; i< rank - num_internal_legs; i++) { 
+                            dim1 *= shape1[i]; 
+                            qn_ind_tuple_3[i] = ptr[i];
+                        }
+                        auto data1 = t1.get_data_block(block_id_1);
+                        
+                        //Eigen::Map<Eigen::Matrix<const DTYPE, Eigen::Dynamic, Eigen::Dynamic>> mat1(data1.data(), dim1, dimc);
+                        //Eigen::Map<const Eigen::MatrixXd> mat1(data1.data(), dim1, dimc);
+                        const Eigen::Map<Eigen::Matrix<DTYPE, 
+                              Eigen::Dynamic, Eigen::Dynamic>> mat1(data1.data(), dim1, dimc);
+                        print_vec(qn_ind_tuple_3, "qn_ind_tuple_3");
+                        
+                        
+                        auto block_id_3 = t3.get_block_id_by_qn_ind_tuple(qn_ind_tuple_3);
+                        //std::cout << "block_id_3 = "<<block_id_3;
+                        auto data3 = t3.get_data_block(block_id_3);
+                        Eigen::Map<Eigen::Matrix<DTYPE, 
+                            Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> mat3(data3.data(), dim1, dim2);
+                        mat3.noalias() = mat1 * mat2;
+                    }
+                    
+                
+                }
+            
+            
+            }
+            
+            
+            
+            
+            return  t3; 
         }
             
 };
 
 
-
+  
 
 
 
@@ -454,7 +600,7 @@ class iTensor {
         
         for(int i=0; i<len;i++){
             std::span<int> chunk = std::span(xxx).subspan(i * rank, rank);
-            print_vec<std::span<int>>( chunk, "");
+            //print_vec<std::span<int>>( chunk, "");
         }
         
         std::cout<<"\n";
@@ -482,7 +628,7 @@ class iTensor {
       
         
         t0.get_data_block(1);
-        print_vec<std::span<double>>(t0.get_data_block(1));
+        print_vec(t0.get_data_block(1));
         
         std::cout << t0.Block_idx[4].string();
         CHECK(t0.Block_idx[4] == BlockInfo(136, 24, 15));
@@ -496,7 +642,7 @@ class iTensor {
         std::cout<<"\n";
     }
 
-    TEST_CASE("temp") {
+    TEST_CASE("transpose") {
         QspU1 qsp =  QspU1::easy_init({0, 1, -1}, {2, 2, 2}); 
         std::vector<QspU1> qsp_list;
         for(int i=0; i<3; i++){
@@ -509,19 +655,58 @@ class iTensor {
         for(auto i=0; i<t0.data.size(); i++){
             t0.data[i]=static_cast<double>(i);
         }
-        print_vec<std::vector<double>>(t0.data);
+        print_vec(t0.data);
 
         
         std::vector<int> order={0, 2, 1};
         iTensor<QspU1, double> tp = t0.transpose(order);
         
-        print_vec<std::vector<double>>(tp.data);
+        print_vec(tp.data);
         
         std::vector<double> old = {0, 1, 4, 5, 2, 3, 6, 7, 24, 25, 28, 29, 26, 27, 30, 31, 
             40, 41, 44, 45, 42, 43, 46, 47, 8, 9, 12, 13, 10, 
             11, 14, 15, 48, 49, 52, 53, 50, 51, 54, 55, 16, 17, 
             20, 21, 18, 19, 22, 23, 32, 33, 36, 37, 34, 35, 38, 39};
         CHECK(tp.data == old);
+        
+        
+                
+        std::cout<<"\n";
+    }
+
+
+    TEST_CASE("temp") {
+        QspU1 qsp =  QspU1::easy_init({0, 1, -1}, {2, 2, 2}); 
+        std::vector<QspU1> qsp_list;
+        for(int i=0; i<3; i++){
+            qsp_list.push_back(qsp);
+        }
+        
+        iTensor<QspU1> t0(qsp_list);
+        for(auto i=0; i<t0.data.size(); i++){ t0.data[i]=static_cast<double>(i); }
+        t0.ind_labels={"a", "b", "c"};
+        print_vec(t0.ind_labels, "t0.ind_labels");
+        
+        
+        QspU1 qsp_2 =  QspU1::easy_init({0, -1, 1}, {2, 2, 2}); 
+        std::vector<QspU1> qsp_list_2;
+        for(int i=0; i<3; i++){
+            qsp_list_2.push_back(qsp_2);
+        }
+        
+        iTensor<QspU1> t2(qsp_list_2);
+        t2.ind_labels={"b", "e", "f"};
+
+        for(auto i=0; i<t2.data.size(); i++){ t2.data[i]=static_cast<double>(i); }
+            
+        print_vec(t2.ind_labels, "t2.ind_labels");
+        
+        
+        auto t3 = t0.contract(t2);
+        print_vec(t3.data);
+        //for(auto label: t3.ind_labels){
+        //    std::cout << label << "a";
+        //}
         
         
                 
