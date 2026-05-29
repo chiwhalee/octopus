@@ -406,7 +406,7 @@ class iTensor {
         }
         
         
-        std::tuple<std::vector<int>, std::vector<int>,std::vector<Type_ind_labels>,  std::vector<Type_ind_labels>> 
+        static std::tuple<std::vector<int>, std::vector<int>,std::vector<Type_ind_labels>,  std::vector<Type_ind_labels>> 
         prepare_leg(const std::vector<Type_ind_labels>& V1, const std::vector<Type_ind_labels>& V2) 
         {
             size_t rank1 = V1.size();
@@ -466,8 +466,8 @@ class iTensor {
             return std::make_tuple(std::move(Vp1), std::move(Vp2), std::move(leg_common),  std::move(V3));
         }        
         
-        iTensor<QspClass, DTYPE> contract(const iTensor<QspClass, DTYPE> other ){
-            auto [ord1, ord2, ind_labels_internal,  ind_labels_3] = this->prepare_leg(this->ind_labels, other.ind_labels);
+        iTensor contract(const iTensor & other ) const {
+            auto [ord1, ord2, ind_labels_internal,  ind_labels_3] = prepare_leg(ind_labels, other.ind_labels);
             
             
             auto t1 = this->transpose(ord1);
@@ -559,7 +559,7 @@ class iTensor {
                         //std::cout << "block_id_3 = "<<block_id_3;
                         auto data3 = t3.get_data_block(block_id_3);
                         Eigen::Map<Eigen::Matrix<DTYPE, 
-                            Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> mat3(data3.data(), dim1, dim2);
+                            Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>> mat3(data3.data(), dim1, dim2);
                         mat3.noalias() = mat1 * mat2;
                     }
                     
