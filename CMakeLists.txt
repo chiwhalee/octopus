@@ -1,11 +1,17 @@
-cmake_minimum_required(VERSION 3.15)
-project(Octopus CXX)
+#cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18) # 建议 3.18+，对 CUDA 支持更完美
+project(Octopus LANGUAGES CXX CUDA)  #在这里显式启用 CUDA 语言支持
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)   # 这行代码会让 CMake 在编译时，自动在你的 build/ 文件夹下生成一个名叫 compile_commands.json 的文件。里面精确记录了每一个源文件（包括 .cu）是用什么编译参数、引用了哪些路径（包括 CUDA 的路径）。
 
 set(CMAKE_CXX_STANDARD 20)    # 强制开启C++20 标准
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Eigen3 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+
+
 if(Eigen3_FOUND)
     message(STATUS "Found Eigen3: ${EIGEN3_INCLUDE_DIR}")
 else()
@@ -13,12 +19,26 @@ else()
 endif()
 
 
+# block below are for GPU 
+#    set(CMAKE_CUDA_STANDARD 17)  # CUDA 编译器目前对 C++17/20 的支持
+#
+#    set(CMAKE_CUDA_ARCHITECTURES "86")  # RTX 3090 (Ampere 架构，算力 8.6) 开启全量硬件优化
+#    #add_executable(octopus_gpu main.cu tensor.cu)
+#    add_executable(itensor_test_gpu test_all.cpp tensor.cu)
+#    target_link_libraries(itensor_test_gpu PRIVATE Eigen3::Eigen)
+
+
+
 #add_executable(itensor_test tests/test_all.cpp)
-add_executable(itensor_test ./test_all.cpp)
+add_executable(itensor_test ./test_all.cpp ./tensor.cu)
 
 
 target_compile_definitions(itensor_test PRIVATE TEST_IT)
-target_link_libraries(itensor_test PRIVATE Eigen3::Eigen)
+target_link_libraries(itensor_test PRIVATE 
+    Eigen3::Eigen
+    CUDA::cudart   #modern CMake 会自动链接 CUDA 的运行时库（cudart）但为了保险或者使用高级 CUDA API，显式加上这一行是 HPC 的标准规范
+    CUDA::cublas   #required by gemm etc. 
+    )
 
 
 #target_compile_options(itensor_test PRIVATE
